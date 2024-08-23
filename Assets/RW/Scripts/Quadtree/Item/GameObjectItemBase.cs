@@ -15,7 +15,7 @@ public abstract class GameObjectItemBase<TItem, TNode> : MonoBehaviour, IItem<TI
     private Bounds lastBounds;
     private Bounds safeBounds;
     private NativeArray<Bounds> boundsArray;
-
+   
     private void Start()
     {
         Debug.Log("Item initialized");

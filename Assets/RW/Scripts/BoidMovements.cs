@@ -6,27 +6,27 @@ using Unity.Jobs;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
+using NativeQuadTree;
 
 public class BoidMovements : MonoBehaviour
 {
     [SerializeField] private Transform boidPrefab;
-    [SerializeField] private GameObjectQuadtreeRoot quadtreeRoot;
-    [SerializeField] private int boidCount;
     [SerializeField] private Vector3 spawnBounds;
+    [SerializeField] private int boidCount;
     [SerializeField] private float radius = 2f;
     [SerializeField] private float forwardSpeed = 5f;
     [SerializeField] private float turnSpeed = 5f;
     private TransformAccessArray transformAccessArray;
     private NativeArray<BoidData> boidData;
-    private BoidInRange boidInRange;
-    private BoidJob boidJob;
-    private JobHandle boidJobHandle;
-    private JobHandle boidInRangeHandle;
+    private NativeQuadTree<float2> quadTree;
+
 
     private void Start()
     {
+        QuadBounds bounds = new QuadBounds(float2.zero, new float2(100, 100));
+        quadTree = new NativeQuadTree<float2>(bounds, Allocator.Persistent, maxDepth: 6, maxLeafElements: 16);
         transformAccessArray = new TransformAccessArray(boidCount, JobsUtility.JobWorkerCount);
-        boidData = new NativeArray<BoidData>(boidCount, Allocator.Persistent);
+        boidData = new NativeArray<BoidData>(boidCount, Allocator.TempJob);
         for (int i = 0; i < boidCount; i++)
         {
             float distanceX = UnityEngine.Random.Range(-spawnBounds.x / 2, spawnBounds.x / 2);
@@ -35,26 +35,29 @@ public class BoidMovements : MonoBehaviour
             Vector3 spawnPoint = transform.position + new Vector3(distanceX, distanceY, 0);
             Transform boid = Instantiate(boidPrefab, spawnPoint,
                  Quaternion.Euler(Vector3.forward * direction) * boidPrefab.rotation);
-            //boid.SetParent(quadtreeRoot);
-            boid.GetComponent<Boid>().QuadtreeRootInitialized(quadtreeRoot);
             transformAccessArray.Add(boid);
-            boidData[i] = new BoidData
-            {
-                position = boid.position,
-                velocity = new float2(boid.forward.x, boid.forward.y),
-                inRangePositions = new NativeList<float3>(Allocator.Persistent),
-                inRangeVelocities = new NativeList<float2>(Allocator.Persistent)
-            };
+            boidData[i] = new BoidData(new float2(boid.forward.x, boid.forward.y));
         }
     }
     private void Update()
     {
-        boidInRange = new BoidInRange
+        var velocities = new NativeArray<QuadElement<float2>>(boidCount, Allocator.TempJob);
+        var updateQuadElementJob = new UpdateQuadElementJob
+        {
+            velocities = velocities
+        };
+        var updateQuadElementJobHandle = updateQuadElementJob.Schedule(transformAccessArray);
+        updateQuadElementJobHandle.Complete();
+        quadTree.ClearAndBulkInsert(velocities);
+
+        var boidInRange = new BoidInRange
         {
             boidData = boidData,
-            radius = radius
+            radius = radius,
+            quadTree = quadTree,
+            velocities = velocities
         };
-        boidJob = new BoidJob
+        var boidJob = new BoidJob
         {
             boidData = boidData,
             forwardSpeed = forwardSpeed,
@@ -64,29 +67,55 @@ public class BoidMovements : MonoBehaviour
             deltaTime = Time.deltaTime,
             radius = radius
         };
-        boidInRangeHandle = boidInRange.Schedule(transformAccessArray);
-        boidJobHandle = boidJob.Schedule(transformAccessArray);
-    }
-    private void LateUpdate()
-    {
+        var boidInRangeHandle = boidInRange.Schedule(transformAccessArray);
+        var boidJobHandle = boidJob.Schedule(transformAccessArray);
         boidInRangeHandle.Complete();
         boidJobHandle.Complete();
+        velocities.Dispose();
+    }
+    [BurstCompile]
+    private struct UpdateQuadElementJob : IJobParallelForTransform
+    {
+        public NativeArray<QuadElement<float2>> velocities;
+        public void Execute(int index, TransformAccess transform)
+        {
+            float3 position = transform.position;
+            float3 forward = transform.localToWorldMatrix.MultiplyVector(Vector3.forward);
+            velocities[index] = new QuadElement<float2>
+            {
+                pos = position.xy,
+                element = forward.xy
+            };
+        }
     }
     [BurstCompile]
     private struct BoidInRange : IJobParallelForTransform
     {
         [NativeDisableContainerSafetyRestriction] public NativeArray<BoidData> boidData;
         public float radius;
+        public NativeQuadTree<float2> quadTree;
+        public NativeArray<QuadElement<float2>> velocities;
         public void Execute(int index, TransformAccess transform)
         {
-            for (int i = 0; i < boidData.Length; i++)
+            var results = new NativeList<QuadElement<float2>>(Allocator.Temp);
+            QuadBounds queryBounds = new QuadBounds(new float2(transform.position.x, transform.position.y),
+                new float2(radius, radius));
+            quadTree.RangeQuery(queryBounds, results);
+
+            foreach (var result in results)
             {
-                if (math.distance(transform.position, boidData[i].position) <= radius)
-                {
-                    boidData[index].inRangePositions.Add(boidData[i].position);
-                    boidData[index].inRangeVelocities.Add(boidData[i].velocity);
-                }
+                boidData[index].inRangePositions.Add(result.pos);
+                boidData[index].inRangeVelocities.Add(result.element);
             }
+
+            //for (int i = 0; i < boidData.Length; i++)
+            //{
+            //    if (math.distance(transform.position, boidData[i].position) <= radius)
+            //    {
+            //        boidData[index].inRangePositions.Add(boidData[i].position);
+            //        boidData[index].inRangeVelocities.Add(boidData[i].velocity);
+            //    }
+            //}
         }
     }
     [BurstCompile]
@@ -110,9 +139,9 @@ public class BoidMovements : MonoBehaviour
             var cohesion = Vector2.zero;
             for (int i = 0; i < boidcount; i++)
             {
-                separation -= Separation(currentPosition, tempData.inRangePositions[i]);
+                separation -= (Vector2)Separation(currentPosition, tempData.inRangePositions[i]);
                 alignment += (Vector2)tempData.inRangeVelocities[i];
-                cohesion += new Vector2(tempData.inRangePositions[i].x, tempData.inRangePositions[i].y);
+                cohesion += (Vector2)tempData.inRangePositions[i];
             }
             separation = separation.normalized;
             alignment = Aligment(alignment, forward, boidcount);
@@ -132,23 +161,22 @@ public class BoidMovements : MonoBehaviour
             }
 
             transform = Boundary(transform, currentPosition);
-            tempData.position = transform.position;
             tempData.velocity = velocity;
             boidData[index] = tempData;
             ClearList(index);
         }
-        private Vector2 Separation(Vector3 currentPosition, Vector3 boidPosition)
+        private float2 Separation(Vector2 currentPosition, Vector2 boidPosition)
         {
             float ratio = Mathf.Clamp01((boidPosition - currentPosition).magnitude / radius);
             return (1 - ratio) * (boidPosition - currentPosition);
         }
-        private Vector2 Aligment(Vector3 direction, Vector3 forward, int boidCount)
+        private float2 Aligment(Vector2 direction, Vector2 forward, int boidCount)
         {
             if (boidCount != 0) direction /= boidCount;
             else direction = forward;
             return direction.normalized;
         }
-        private Vector2 Cohesion(Vector3 center, Vector3 currentPosition, int boidCount)
+        private float2 Cohesion(Vector2 center, Vector2 currentPosition, int boidCount)
         {
             if (boidCount != 0) center /= boidCount;
             else center = currentPosition;
@@ -161,7 +189,7 @@ public class BoidMovements : MonoBehaviour
                 boidData[index].inRangePositions.Clear();
             }
 
-            if (boidData[index].inRangePositions.IsCreated)
+            if (boidData[index].inRangeVelocities.IsCreated)
             {
                 boidData[index].inRangeVelocities.Clear();
             }
@@ -192,11 +220,22 @@ public class BoidMovements : MonoBehaviour
         Gizmos.DrawWireCube(transform.position, spawnBounds);
     }
     [BurstCompile]
-    public struct BoidData
+    private struct BoidData
     {
-        public float3 position;
         public float2 velocity;
-        public NativeList<float3> inRangePositions;
+        public NativeList<float2> inRangePositions;
         public NativeList<float2> inRangeVelocities;
+
+        public BoidData(float2 velocity)
+        {
+            this.velocity = velocity;
+            inRangePositions = new NativeList<float2>(Allocator.TempJob);
+            inRangeVelocities = new NativeList<float2>(Allocator.TempJob);
+        }
+        public void Dispose()
+        {
+            inRangePositions.Dispose();
+            inRangeVelocities.Dispose();
+        }
     }
 }

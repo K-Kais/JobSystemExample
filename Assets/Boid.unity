@@ -153,9 +153,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   boidPrefab: {fileID: 8816889875483111277, guid: 2b9d52ba341f12549bbad904668b74fc,
     type: 3}
-  quadtreeRoot: {fileID: 523531355}
-  boidCount: 1000
   spawnBounds: {x: 80, y: 50, z: 0}
+  boidCount: 1000
   radius: 3
   forwardSpeed: 5
   turnSpeed: 5
@@ -174,52 +173,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &523531353
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 523531354}
-  - component: {fileID: 523531355}
-  m_Layer: 0
-  m_Name: QuadtreeRoot
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 63
-  m_IsActive: 1
---- !u!4 &523531354
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 523531353}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 1
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &523531355
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 523531353}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 29cec357af83ee04a804ba0ea35d032e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  defaultRootNodeSize: {x: 90, y: 60, z: 0}
-  minimumPossibleNodeSize: 1
 --- !u!1 &1084620879
 GameObject:
   m_ObjectHideFlags: 0
@@ -413,4 +366,3 @@ SceneRoots:
   - {fileID: 1832133037}
   - {fileID: 1084620881}
   - {fileID: 60462376}
-  - {fileID: 523531354}
