@@ -23,8 +23,8 @@ public class BoidMovements : MonoBehaviour
 
     private void Start()
     {
-        QuadBounds bounds = new QuadBounds(float2.zero, new float2(100, 100));
-        quadTree = new NativeQuadTree<float2>(bounds, Allocator.Persistent, maxDepth: 6, maxLeafElements: 16);
+        QuadBounds bounds = new QuadBounds(float2.zero, new float2(80, 80));
+        quadTree = new NativeQuadTree<float2>(bounds, Allocator.Persistent, maxDepth: 8, maxLeafElements: 128);
         transformAccessArray = new TransformAccessArray(boidCount, JobsUtility.JobWorkerCount);
         velocities = new NativeArray<float2>(boidCount, Allocator.TempJob);
         for (int i = 0; i < boidCount; i++)
@@ -41,6 +41,11 @@ public class BoidMovements : MonoBehaviour
     }
     private void Update()
     {
+        UpdateQuadTree();
+        ApplyRule();
+    }
+    private void UpdateQuadTree()
+    {
         var forward = new NativeArray<QuadElement<float2>>(boidCount, Allocator.TempJob);
         var updateQuadElementJob = new UpdateQuadElementJob
         {
@@ -50,20 +55,22 @@ public class BoidMovements : MonoBehaviour
         updateQuadElementJobHandle.Complete();
         quadTree.ClearAndBulkInsert(forward);
         forward.Dispose();
-
-        var boidJob = new BoidJob
+    }
+    private void ApplyRule()
+    {
+        var boidMovementsJob = new BoidMovementsJob
         {
             quadTree = quadTree,
             velocities = velocities,
             forwardSpeed = forwardSpeed,
-            bounds = spawnBounds,
+            spawnBounds = spawnBounds,
             center = transform.position,
             turnSpeed = turnSpeed,
             deltaTime = Time.deltaTime,
             radius = radius,
         };
-        var boidJobHandle = boidJob.Schedule(transformAccessArray);
-        boidJobHandle.Complete();
+        var boidMovementsJobHandle = boidMovementsJob.Schedule(transformAccessArray);
+        boidMovementsJobHandle.Complete();
     }
     [BurstCompile]
     private struct UpdateQuadElementJob : IJobParallelForTransform
@@ -112,11 +119,11 @@ public class BoidMovements : MonoBehaviour
     //    }
     //}
     [BurstCompile]
-    private struct BoidJob : IJobParallelForTransform
+    private struct BoidMovementsJob : IJobParallelForTransform
     {
         public NativeQuadTree<float2> quadTree;
         public NativeArray<float2> velocities;
-        public float3 bounds;
+        public float3 spawnBounds;
         public float3 center;
         public float forwardSpeed;
         public float turnSpeed;
@@ -131,17 +138,17 @@ public class BoidMovements : MonoBehaviour
             var cohesion = Vector2.zero;
 
             var results = new NativeList<QuadElement<float2>>(Allocator.Temp);
-            QuadBounds queryBounds = new QuadBounds(new float2(transform.position.x, transform.position.y),
-                new float2(radius, radius));
+            QuadBounds queryBounds = new QuadBounds(currentPosition.xy, new float2(radius, radius));
             quadTree.RangeQuery(queryBounds, results);
             var boidcount = results.Length;
 
             for (int i = 0; i < boidcount; i++)
             {
-                separation -= (Vector2)Separation(currentPosition.xy, results[i].pos);
+                separation -= Separation(currentPosition.xy, results[i].pos);
                 alignment += (Vector2)results[i].element;
                 cohesion += (Vector2)results[i].pos;
             }
+
             separation = separation.normalized;
             alignment = Aligment(alignment, forward, boidcount);
             cohesion = Cohesion(cohesion, currentPosition.xy, boidcount);
@@ -150,7 +157,7 @@ public class BoidMovements : MonoBehaviour
             Vector2 velocity = velocities[index];
             velocity = Vector2.Lerp(velocity, direction, turnSpeed / 2 * deltaTime);
             transform.position += (Vector3)velocity * deltaTime;
-            if (!velocity.Equals(float2.zero))
+            if (velocity != Vector2.zero)
             {
                 transform.rotation = Quaternion.Slerp(transform.rotation,
                   Quaternion.LookRotation(velocity), turnSpeed * deltaTime);
@@ -159,37 +166,37 @@ public class BoidMovements : MonoBehaviour
             transform = Boundary(transform, currentPosition);
             results.Dispose();
         }
-        private float2 Separation(Vector2 currentPosition, Vector2 boidPosition)
+        private Vector2 Separation(Vector2 currentPosition, Vector2 boidPosition)
         {
             float ratio = Mathf.Clamp01((boidPosition - currentPosition).magnitude / radius);
             return (1 - ratio) * (boidPosition - currentPosition);
         }
-        private float2 Aligment(Vector2 direction, Vector2 forward, int boidCount)
+        private Vector2 Aligment(Vector2 direction, Vector2 forward, int boidCount)
         {
             if (boidCount != 0) direction /= boidCount;
             else direction = forward;
             return direction.normalized;
         }
-        private float2 Cohesion(Vector2 center, Vector2 currentPosition, int boidCount)
+        private Vector2 Cohesion(Vector2 center, Vector2 currentPosition, int boidCount)
         {
             if (boidCount != 0) center /= boidCount;
             else center = currentPosition;
             return (center - currentPosition).normalized;
         }
-        private readonly TransformAccess Boundary(TransformAccess transform, Vector3 currentPosition)
+        private readonly TransformAccess Boundary(TransformAccess transform, float3 currentPosition)
         {
-            if (currentPosition.x > center.x + bounds.x / 2 ||
-                currentPosition.x < center.x - bounds.x / 2)
+            if (currentPosition.x > center.x + spawnBounds.x / 2 ||
+                currentPosition.x < center.x - spawnBounds.x / 2)
             {
                 currentPosition.x = currentPosition.x > 0 ?
-                center.x - bounds.x / 2 : center.x + bounds.x / 2;
+                center.x - spawnBounds.x / 2 : center.x + spawnBounds.x / 2;
                 transform.position = currentPosition;
             }
-            if (currentPosition.y > center.y + bounds.y / 2 ||
-                currentPosition.y < center.y - bounds.y / 2)
+            if (currentPosition.y > center.y + spawnBounds.y / 2 ||
+                currentPosition.y < center.y - spawnBounds.y / 2)
             {
                 currentPosition.y = currentPosition.y > 0 ?
-                center.y - bounds.y / 2 : center.y + bounds.y / 2;
+                center.y - spawnBounds.y / 2 : center.y + spawnBounds.y / 2;
                 transform.position = currentPosition;
             }
 
