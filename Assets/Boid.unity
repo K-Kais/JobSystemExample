@@ -154,7 +154,7 @@ MonoBehaviour:
   boidPrefab: {fileID: 8816889875483111277, guid: 2b9d52ba341f12549bbad904668b74fc,
     type: 3}
   spawnBounds: {x: 80, y: 50, z: 0}
-  boidCount: 5000
+  boidCount: 1000
   radius: 3
   forwardSpeed: 5
   turnSpeed: 5

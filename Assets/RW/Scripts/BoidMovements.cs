@@ -26,7 +26,7 @@ public class BoidMovements : MonoBehaviour
         QuadBounds bounds = new QuadBounds(float2.zero, new float2(80, 80));
         quadTree = new NativeQuadTree<float2>(bounds, Allocator.Persistent, maxDepth: 8, maxLeafElements: 128);
         transformAccessArray = new TransformAccessArray(boidCount, JobsUtility.JobWorkerCount);
-        velocities = new NativeArray<float2>(boidCount, Allocator.TempJob);
+        velocities = new NativeArray<float2>(boidCount, Allocator.Persistent);
         for (int i = 0; i < boidCount; i++)
         {
             float distanceX = UnityEngine.Random.Range(-spawnBounds.x / 2, spawnBounds.x / 2);
@@ -43,6 +43,12 @@ public class BoidMovements : MonoBehaviour
     {
         UpdateQuadTree();
         ApplyRule();
+    }
+    private void OnDestroy()
+    {
+        transformAccessArray.Dispose();
+        quadTree.Dispose();
+        velocities.Dispose();
     }
     private void UpdateQuadTree()
     {
