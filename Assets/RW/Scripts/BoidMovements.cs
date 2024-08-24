@@ -17,8 +17,8 @@ public class BoidMovements : MonoBehaviour
     [SerializeField] private float forwardSpeed = 5f;
     [SerializeField] private float turnSpeed = 5f;
     private TransformAccessArray transformAccessArray;
-    //private NativeArray<BoidData> boidData;
     private NativeQuadTree<float2> quadTree;
+    private NativeArray<float2> velocities;
 
 
     private void Start()
@@ -26,7 +26,7 @@ public class BoidMovements : MonoBehaviour
         QuadBounds bounds = new QuadBounds(float2.zero, new float2(100, 100));
         quadTree = new NativeQuadTree<float2>(bounds, Allocator.Persistent, maxDepth: 6, maxLeafElements: 16);
         transformAccessArray = new TransformAccessArray(boidCount, JobsUtility.JobWorkerCount);
-        //boidData = new NativeArray<BoidData>(boidCount, Allocator.TempJob);
+        velocities = new NativeArray<float2>(boidCount, Allocator.TempJob);
         for (int i = 0; i < boidCount; i++)
         {
             float distanceX = UnityEngine.Random.Range(-spawnBounds.x / 2, spawnBounds.x / 2);
@@ -36,27 +36,21 @@ public class BoidMovements : MonoBehaviour
             Transform boid = Instantiate(boidPrefab, spawnPoint,
                  Quaternion.Euler(Vector3.forward * direction) * boidPrefab.rotation);
             transformAccessArray.Add(boid);
-            // boidData[i] = new BoidData(new float2(boid.forward.x, boid.forward.y));
+            velocities[i] = new float2(boid.forward.x, boid.forward.y);
         }
     }
     private void Update()
     {
-        var velocities = new NativeArray<QuadElement<float2>>(boidCount, Allocator.TempJob);
+        var forward = new NativeArray<QuadElement<float2>>(boidCount, Allocator.TempJob);
         var updateQuadElementJob = new UpdateQuadElementJob
         {
-            velocities = velocities
+            foward = forward
         };
         var updateQuadElementJobHandle = updateQuadElementJob.Schedule(transformAccessArray);
         updateQuadElementJobHandle.Complete();
-        quadTree.ClearAndBulkInsert(velocities);
+        quadTree.ClearAndBulkInsert(forward);
+        forward.Dispose();
 
-        //var boidInRange = new BoidInRange
-        //{
-        //    boidData = boidData,
-        //    radius = radius,
-        //    quadTree = quadTree,
-        //    velocities = velocities
-        //};
         var boidJob = new BoidJob
         {
             quadTree = quadTree,
@@ -66,65 +60,62 @@ public class BoidMovements : MonoBehaviour
             center = transform.position,
             turnSpeed = turnSpeed,
             deltaTime = Time.deltaTime,
-            radius = radius
+            radius = radius,
         };
-        //var boidInRangeHandle = boidInRange.Schedule(transformAccessArray);
         var boidJobHandle = boidJob.Schedule(transformAccessArray);
-        //  boidInRangeHandle.Complete();
         boidJobHandle.Complete();
-        velocities.Dispose();
     }
     [BurstCompile]
     private struct UpdateQuadElementJob : IJobParallelForTransform
     {
-        public NativeArray<QuadElement<float2>> velocities;
+        public NativeArray<QuadElement<float2>> foward;
         public void Execute(int index, TransformAccess transform)
         {
             float3 position = transform.position;
             float3 forward = transform.localToWorldMatrix.MultiplyVector(Vector3.forward);
-            velocities[index] = new QuadElement<float2>
+            foward[index] = new QuadElement<float2>
             {
                 pos = position.xy,
                 element = forward.xy
             };
         }
     }
-    [BurstCompile]
-    private struct BoidInRange : IJobParallelForTransform
-    {
-        [NativeDisableContainerSafetyRestriction]
-        public NativeArray<BoidData> boidData;
-        public NativeQuadTree<float2> quadTree;
-        public NativeArray<QuadElement<float2>> velocities;
-        public float radius;
-        public void Execute(int index, TransformAccess transform)
-        {
-            var results = new NativeList<QuadElement<float2>>(Allocator.Temp);
-            QuadBounds queryBounds = new QuadBounds(new float2(transform.position.x, transform.position.y),
-                new float2(radius, radius));
-            quadTree.RangeQuery(queryBounds, results);
+    //[BurstCompile]
+    //private struct BoidInRange : IJobParallelForTransform
+    //{
+    //    [NativeDisableContainerSafetyRestriction]
+    //    public NativeArray<BoidData> boidData;
+    //    public NativeQuadTree<float2> quadTree;
+    //    public NativeArray<QuadElement<float2>> velocities;
+    //    public float radius;
+    //    public void Execute(int index, TransformAccess transform)
+    //    {
+    //        var results = new NativeList<QuadElement<float2>>(Allocator.Temp);
+    //        QuadBounds queryBounds = new QuadBounds(new float2(transform.position.x, transform.position.y),
+    //            new float2(radius, radius));
+    //        quadTree.RangeQuery(queryBounds, results);
 
-            foreach (var result in results)
-            {
-                boidData[index].inRangePositions.Add(result.pos);
-                boidData[index].inRangeVelocities.Add(result.element);
-            }
+    //        foreach (var result in results)
+    //        {
+    //            boidData[index].inRangePositions.Add(result.pos);
+    //            boidData[index].inRangeVelocities.Add(result.element);
+    //        }
 
-            //for (int i = 0; i < boidData.Length; i++)
-            //{
-            //    if (math.distance(transform.position, boidData[i].position) <= radius)
-            //    {
-            //        boidData[index].inRangePositions.Add(boidData[i].position);
-            //        boidData[index].inRangeVelocities.Add(boidData[i].velocity);
-            //    }
-            //}
-        }
-    }
+    //        //for (int i = 0; i < boidData.Length; i++)
+    //        //{
+    //        //    if (math.distance(transform.position, boidData[i].position) <= radius)
+    //        //    {
+    //        //        boidData[index].inRangePositions.Add(boidData[i].position);
+    //        //        boidData[index].inRangeVelocities.Add(boidData[i].velocity);
+    //        //    }
+    //        //}
+    //    }
+    //}
     [BurstCompile]
     private struct BoidJob : IJobParallelForTransform
     {
         public NativeQuadTree<float2> quadTree;
-        public NativeArray<QuadElement<float2>> velocities;
+        public NativeArray<float2> velocities;
         public float3 bounds;
         public float3 center;
         public float forwardSpeed;
@@ -133,7 +124,7 @@ public class BoidMovements : MonoBehaviour
         public float radius;
         public void Execute(int index, TransformAccess transform)
         {
-            var currentPosition = transform.position;
+            float3 currentPosition = transform.position;
             Vector2 forward = transform.localToWorldMatrix.MultiplyVector(Vector3.forward);
             var separation = Vector2.zero;
             var alignment = Vector2.zero;
@@ -147,16 +138,16 @@ public class BoidMovements : MonoBehaviour
 
             for (int i = 0; i < boidcount; i++)
             {
-                separation -= (Vector2)Separation(currentPosition, results[i].pos);
+                separation -= (Vector2)Separation(currentPosition.xy, results[i].pos);
                 alignment += (Vector2)results[i].element;
                 cohesion += (Vector2)results[i].pos;
             }
             separation = separation.normalized;
             alignment = Aligment(alignment, forward, boidcount);
-            cohesion = Cohesion(cohesion, currentPosition, boidcount);
+            cohesion = Cohesion(cohesion, currentPosition.xy, boidcount);
             var direction = (forward + separation + 0.2f * alignment + cohesion).normalized * forwardSpeed;
 
-            Vector2 velocity = velocities[index].element;
+            Vector2 velocity = velocities[index];
             velocity = Vector2.Lerp(velocity, direction, turnSpeed / 2 * deltaTime);
             transform.position += (Vector3)velocity * deltaTime;
             if (!velocity.Equals(float2.zero))
@@ -164,7 +155,7 @@ public class BoidMovements : MonoBehaviour
                 transform.rotation = Quaternion.Slerp(transform.rotation,
                   Quaternion.LookRotation(velocity), turnSpeed * deltaTime);
             }
-
+            velocities[index] = velocity;
             transform = Boundary(transform, currentPosition);
             results.Dispose();
         }
@@ -209,26 +200,5 @@ public class BoidMovements : MonoBehaviour
     {
         Gizmos.color = Color.magenta;
         Gizmos.DrawWireCube(transform.position, spawnBounds);
-    }
-    [BurstCompile]
-    private struct BoidData
-    {
-        public float2 velocity;
-        public NativeList<float2> inRangePositions;
-        public NativeList<float2> inRangeVelocities;
-
-        public BoidData(float2 velocity)
-        {
-            this.velocity = velocity;
-            inRangePositions = new NativeList<float2>(Allocator.TempJob);
-            inRangeVelocities = new NativeList<float2>(Allocator.TempJob);
-        }
-        public void Dispose()
-        {
-            inRangePositions.Dispose();
-            inRangeVelocities.Dispose();
-            inRangePositions = new NativeList<float2>(Allocator.TempJob);
-            inRangeVelocities = new NativeList<float2>(Allocator.TempJob);
-        }
     }
 }
