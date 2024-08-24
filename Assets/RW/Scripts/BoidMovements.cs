@@ -154,8 +154,8 @@ public class BoidMovements : MonoBehaviour
             separation = separation.normalized;
             alignment = Aligment(alignment, forward, boidcount);
             cohesion = Cohesion(cohesion, currentPosition, boidcount);
-            var direction = (forward /*+ separation + 0.2f * alignment + cohesion*/).normalized * forwardSpeed;
-  
+            var direction = (forward + separation + 0.2f * alignment + cohesion).normalized * forwardSpeed;
+
             Vector2 velocity = velocities[index].element;
             velocity = Vector2.Lerp(velocity, direction, turnSpeed / 2 * deltaTime);
             transform.position += (Vector3)velocity * deltaTime;
@@ -166,6 +166,7 @@ public class BoidMovements : MonoBehaviour
             }
 
             transform = Boundary(transform, currentPosition);
+            results.Dispose();
         }
         private float2 Separation(Vector2 currentPosition, Vector2 boidPosition)
         {
