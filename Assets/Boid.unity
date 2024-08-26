@@ -155,9 +155,10 @@ MonoBehaviour:
     type: 3}
   spawnBounds: {x: 80, y: 50, z: 0}
   boidCount: 1000
-  radius: 3
+  radius: 2
   forwardSpeed: 5
   turnSpeed: 5
+  visionAngle: 360
 --- !u!4 &60462376
 Transform:
   m_ObjectHideFlags: 0

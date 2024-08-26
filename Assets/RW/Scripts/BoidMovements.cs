@@ -16,6 +16,7 @@ public class BoidMovements : MonoBehaviour
     [SerializeField] private float radius = 2f;
     [SerializeField] private float forwardSpeed = 5f;
     [SerializeField] private float turnSpeed = 5f;
+    [SerializeField] private float visionAngle = 270f;
     private TransformAccessArray transformAccessArray;
     private NativeQuadTree<float2> quadTree;
     private NativeArray<float2> velocities;
@@ -80,6 +81,7 @@ public class BoidMovements : MonoBehaviour
             turnSpeed = turnSpeed,
             deltaTime = Time.deltaTime,
             radius = radius,
+            visionAngle = visionAngle
         };
         var boidMovementsJobHandle = boidMovementsJob.Schedule(transformAccessArray);
         boidMovementsJobHandle.Complete();
@@ -141,10 +143,11 @@ public class BoidMovements : MonoBehaviour
         public float turnSpeed;
         public float deltaTime;
         public float radius;
+        public float visionAngle;
         public void Execute(int index, TransformAccess transform)
         {
             float3 currentPosition = transform.position;
-            Vector2 forward = transform.localToWorldMatrix.MultiplyVector(Vector3.forward);
+            Vector2 currentForward = transform.localToWorldMatrix.MultiplyVector(Vector3.forward);
             var separation = Vector2.zero;
             var alignment = Vector2.zero;
             var cohesion = Vector2.zero;
@@ -153,18 +156,29 @@ public class BoidMovements : MonoBehaviour
             QuadBounds queryBounds = new QuadBounds(currentPosition.xy, new float2(radius, radius));
             quadTree.RangeQuery(queryBounds, results);
             var boidcount = results.Length;
-
             for (int i = 0; i < boidcount; i++)
             {
+                if (!InVisionCone(currentPosition.xy, results[i].pos, currentForward))
+                {
+                    //Debug.DrawLine(currentPosition, (Vector2)results[i].pos, Color.red);
+                    results.RemoveAtSwapBack(i);
+                    boidcount--;
+                    i--;
+                    continue;
+                }
+
+                cohesion += (Vector2)results[i].pos;
                 separation -= Separation(currentPosition.xy, results[i].pos);
                 alignment += (Vector2)results[i].element;
-                cohesion += (Vector2)results[i].pos;
             }
-
             separation = separation.normalized;
-            alignment = Aligment(alignment, forward, boidcount);
+            alignment = Aligment(alignment, currentForward, boidcount);
             cohesion = Cohesion(cohesion, currentPosition.xy, boidcount);
-            var direction = (forward + separation + 0.2f * alignment + cohesion).normalized * forwardSpeed;
+            var direction = (currentForward
+                + separation
+                + 0.2f * alignment
+                + cohesion
+                ).normalized * forwardSpeed;
 
             Vector2 velocity = velocities[index];
             velocity = Vector2.Lerp(velocity, direction, turnSpeed / 2 * deltaTime);
@@ -178,20 +192,27 @@ public class BoidMovements : MonoBehaviour
             transform = Boundary(transform, currentPosition);
             results.Dispose();
         }
+        private bool InVisionCone(Vector2 currentPostition, Vector2 boidPosition, Vector2 currentForward)
+        {
+            Vector2 directionToPosition = boidPosition - currentPostition;
+            float dotProduct = Vector2.Dot(currentForward.normalized, directionToPosition);
+            float cosHalfVisionAngle = Mathf.Cos(visionAngle * 0.5f * Mathf.Deg2Rad);
+            return dotProduct >= cosHalfVisionAngle;
+        }
         private Vector2 Separation(Vector2 currentPosition, Vector2 boidPosition)
         {
             float ratio = Mathf.Clamp01((boidPosition - currentPosition).magnitude / radius);
             return (1 - ratio) * (boidPosition - currentPosition);
         }
-        private Vector2 Aligment(Vector2 direction, Vector2 forward, int boidCount)
+        private Vector2 Aligment(Vector2 direction, Vector2 currentForward, int boidCount)
         {
             if (boidCount != 0) direction /= boidCount;
-            else direction = forward;
+            else direction = currentForward;
             return direction.normalized;
         }
         private Vector2 Cohesion(Vector2 center, Vector2 currentPosition, int boidCount)
         {
-            if (boidCount != 0) center /= boidCount;
+            if (boidCount != 0 && center != Vector2.zero) center /= boidCount;
             else center = currentPosition;
             return (center - currentPosition).normalized;
         }

@@ -2,8 +2,10 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Boid : GameObjectItem
+public class Boid : MonoBehaviour
 {
-    [SerializeField] private Renderer renderer;
-    public override Bounds GetBounds() => renderer.bounds;
+    private void Update()
+    {
+        Debug.DrawLine(transform.position, transform.position + transform.forward, Color.red);
+    }
 }
