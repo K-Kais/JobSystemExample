@@ -59,7 +59,13 @@ public class BoidMovements : MonoBehaviour
         };
         var updateQuadElementJobHandle = updateQuadElementJob.Schedule(transformAccessArray);
         updateQuadElementJobHandle.Complete();
-        quadTree.ClearAndBulkInsert(forward);
+        // quadTree.ClearAndBulkInsert(forward);
+        var queryJob = new QuadTreeJobs.AddBulkJob<float2>
+        {
+            Elements = forward,
+            QuadTree = quadTree,
+        };
+        queryJob.Run();
         forward.Dispose();
     }
     private void ApplyRule()
